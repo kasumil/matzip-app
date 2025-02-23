@@ -1,0 +1,89 @@
+name: React Native Build & Deploy
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  build:
+    name: Build React Native App
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Create .env File
+        run: |
+          echo "API_URL=${{ secrets.API_URL }}" >> .env
+          echo "APP_ENV=${{ secrets.APP_ENV }}" >> .env
+
+      - name: Install CocoaPods (iOS)
+        run: |
+          cd ios
+          pod install
+        if: runner.os == 'macOS'
+
+      - name: Build Android APK
+        run: |
+          cd android
+          ./gradlew assembleRelease
+        if: runner.os != 'macOS'
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: android-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Build iOS
+        run: |
+          cd ios
+          xcodebuild -workspace YourApp.xcworkspace \
+                     -scheme YourApp \
+                     -sdk iphoneos \
+                     -configuration Release \
+                     archive -archivePath YourApp.xcarchive
+        if: runner.os == 'macOS'
+
+      - name: Export iOS IPA
+        run: |
+          cd ios
+          xcodebuild -exportArchive \
+                     -archivePath YourApp.xcarchive \
+                     -exportOptionsPlist exportOptions.plist \
+                     -exportPath ./build
+        if: runner.os == 'macOS'
+
+      - name: Upload iOS IPA
+        uses: actions/upload-artifact@v3
+        with:
+          name: ios-release-ipa
+          path: ios/build/*.ipa
+
+      - name: Deploy to App Store (iOS)
+        uses: apple-actions/upload-testflight-build@v1
+        with:
+          app-store-connect-key-id: ${{ secrets.APP_STORE_KEY_ID }}
+          app-store-connect-issuer-id: ${{ secrets.APP_STORE_ISSUER_ID }}
+          app-store-connect-private-key: ${{ secrets.APP_STORE_PRIVATE_KEY }}
+          app-path: ios/build/*.ipa
+        if: runner.os == 'macOS'
+
+      - name: Deploy to Google Play (Android)
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJson: ${{ secrets.ANDROID_SERVICE_ACCOUNT_JSON }}
+          packageName: "com.yourapp"
+          releaseFiles: android/app/build/outputs/apk/release/app-release.apk
+          track: internal
+          status: completed
